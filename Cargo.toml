@@ -1,0 +1,63 @@
+[workspace]
+members = ["rubeus-core", "rubeus-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Rubeus Rust Port Contributors"]
+license = "BSD-3-Clause"
+repository = "https://github.com/GhostPack/Rubeus"
+
+[workspace.dependencies]
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+hex = "0.4"
+
+# Cryptography
+aes = "0.8"
+cbc = "0.1"
+hmac = "0.12"
+sha1 = "0.10"
+md4 = "0.10"
+md5 = "0.7"
+pbkdf2 = "0.12"
+des = "0.8"
+rc4 = "0.1"
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Big integers
+num-bigint = "0.4"
+num-traits = "0.2"
+
+# ASN.1 and DER
+der-parser = "9.0"
+x509-parser = "0.16"
+
+# Networking
+tokio = { version = "1.38", features = ["net", "rt-multi-thread", "macros", "io-util"] }
+ldap3 = "0.11"
+
+# Time
+chrono = "0.4"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Windows-specific
+windows = { version = "0.58", features = [
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Credentials",
+    "Win32_System_Threading",
+    "Win32_Foundation",
+] }

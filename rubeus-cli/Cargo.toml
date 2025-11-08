@@ -1,0 +1,22 @@
+[package]
+name = "rubeus-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rubeus"
+path = "src/main.rs"
+
+[dependencies]
+rubeus-core = { path = "../rubeus-core" }
+clap.workspace = true
+anyhow.workspace = true
+env_logger.workspace = true
+log.workspace = true
+
+[features]
+default = []
+windows-lsa = ["rubeus-core/windows-lsa"]

@@ -5,6 +5,8 @@
 
 use crate::asn1::{AsnElt, TagClass, tags};
 use crate::asn1::error::{Result as AsnResult, AsnError};
+use chrono::{DateTime, Utc, TimeZone};
+use bitflags::bitflags;
 
 /// Kerberos principal name types (RFC 4120 Section 6.2)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -337,9 +339,197 @@ impl AsnEltExt for AsnElt {
     }
 }
 
+// =============================================================================
+// Realm, Time, and Ticket Structures
+// =============================================================================
+
+/// Realm is a KerberosString (GeneralString in ASN.1)
+/// Represents a Kerberos realm (domain name)
+pub type Realm = String;
+
+/// KerberosTime - timestamp used in Kerberos protocol (RFC 4120 Section 5.2.3)
+///
+/// Represented as GeneralizedTime in ASN.1: YYYYMMDDHHmmssZ
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KerberosTime(pub DateTime<Utc>);
+
+impl KerberosTime {
+    /// Create a new KerberosTime from DateTime
+    pub fn new(dt: DateTime<Utc>) -> Self {
+        KerberosTime(dt)
+    }
+
+    /// Create from Unix timestamp
+    pub fn from_timestamp(secs: i64) -> Option<Self> {
+        Utc.timestamp_opt(secs, 0).single().map(KerberosTime)
+    }
+
+    /// Parse from ASN.1 GeneralizedTime string
+    ///
+    /// Format: YYYYMMDDHHmmssZ
+    pub fn from_asn(asn: &AsnElt) -> AsnResult<Self> {
+        let bytes = asn.get_primitive_bytes()?;
+        let time_str = std::str::from_utf8(bytes)
+            .map_err(|e| AsnError::InvalidEncoding(format!("invalid UTF-8 in time: {}", e)))?;
+
+        // Parse GeneralizedTime format: YYYYMMDDHHmmssZ
+        if time_str.len() < 15 || !time_str.ends_with('Z') {
+            return Err(AsnError::InvalidEncoding(format!("invalid KerberosTime format: {}", time_str)));
+        }
+
+        let year: i32 = time_str[0..4].parse()
+            .map_err(|_| AsnError::InvalidEncoding("invalid year".to_string()))?;
+        let month: u32 = time_str[4..6].parse()
+            .map_err(|_| AsnError::InvalidEncoding("invalid month".to_string()))?;
+        let day: u32 = time_str[6..8].parse()
+            .map_err(|_| AsnError::InvalidEncoding("invalid day".to_string()))?;
+        let hour: u32 = time_str[8..10].parse()
+            .map_err(|_| AsnError::InvalidEncoding("invalid hour".to_string()))?;
+        let min: u32 = time_str[10..12].parse()
+            .map_err(|_| AsnError::InvalidEncoding("invalid minute".to_string()))?;
+        let sec: u32 = time_str[12..14].parse()
+            .map_err(|_| AsnError::InvalidEncoding("invalid second".to_string()))?;
+
+        let dt = Utc.with_ymd_and_hms(year, month, day, hour, min, sec)
+            .single()
+            .ok_or_else(|| AsnError::InvalidEncoding("invalid datetime".to_string()))?;
+
+        Ok(KerberosTime(dt))
+    }
+
+    /// Get as Unix timestamp
+    pub fn timestamp(&self) -> i64 {
+        self.0.timestamp()
+    }
+}
+
+bitflags! {
+    /// Ticket flags (RFC 4120 Section 5.3)
+    ///
+    /// Flags indicating various properties of a Kerberos ticket.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct TicketFlags: u32 {
+        const RESERVED        = 0x8000_0000;
+        const FORWARDABLE     = 0x4000_0000;
+        const FORWARDED       = 0x2000_0000;
+        const PROXIABLE       = 0x1000_0000;
+        const PROXY           = 0x0800_0000;
+        const MAY_POSTDATE    = 0x0400_0000;
+        const POSTDATED       = 0x0200_0000;
+        const INVALID         = 0x0100_0000;
+        const RENEWABLE       = 0x0080_0000;
+        const INITIAL         = 0x0040_0000;
+        const PRE_AUTHENT     = 0x0020_0000;
+        const HW_AUTHENT      = 0x0010_0000;
+        const OK_AS_DELEGATE  = 0x0004_0000;
+        const ANONYMOUS       = 0x0002_0000;
+        const NAME_CANONICALIZE = 0x0001_0000;
+        const ENC_PA_REP      = 0x0001_0000;  // Same as NAME_CANONICALIZE
+    }
+}
+
+impl TicketFlags {
+    /// Parse from ASN.1 BIT STRING or INTEGER
+    pub fn from_asn(asn: &AsnElt) -> AsnResult<Self> {
+        // C# code: Convert.ToUInt32(s.Sub[0].GetInteger())
+        let value = get_integer_i32(asn)? as u32;
+        Ok(TicketFlags::from_bits_truncate(value))
+    }
+}
+
+/// Ticket structure (RFC 4120 Section 5.3)
+///
+/// ```asn1
+/// Ticket ::= [APPLICATION 1] SEQUENCE {
+///     tkt-vno     [0] INTEGER (5),
+///     realm       [1] Realm,
+///     sname       [2] PrincipalName,
+///     enc-part    [3] EncryptedData -- EncTicketPart
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ticket {
+    /// Ticket version number (always 5 for Kerberos v5)
+    pub tkt_vno: i32,
+    /// Service realm
+    pub realm: Realm,
+    /// Service principal name
+    pub sname: PrincipalName,
+    /// Encrypted ticket part
+    pub enc_part: EncryptedData,
+}
+
+impl Ticket {
+    /// Create a new ticket
+    pub fn new(realm: String, sname: PrincipalName, enc_part: EncryptedData) -> Self {
+        Ticket {
+            tkt_vno: 5,
+            realm,
+            sname,
+            enc_part,
+        }
+    }
+
+    /// Parse from ASN.1 element
+    ///
+    /// Expects [APPLICATION 1] SEQUENCE structure
+    pub fn from_asn(asn: &AsnElt) -> AsnResult<Self> {
+        // Check for APPLICATION 1 tag
+        asn.check_tag(TagClass::Application, 1)?;
+
+        let outer_seq = asn.get_sub(0)?;
+        outer_seq.check_constructed()?;
+
+        let mut tkt_vno = None;
+        let mut realm = None;
+        let mut sname = None;
+        let mut enc_part = None;
+
+        // Parse context-tagged fields
+        for field in outer_seq.get_subs()? {
+            match field.tag_value {
+                0 => {
+                    // tkt-vno [0] INTEGER (5)
+                    tkt_vno = Some(get_integer_i32(field.get_sub(0)?)?);
+                }
+                1 => {
+                    // realm [1] Realm (GeneralString)
+                    let bytes = field.get_sub(0)?.get_primitive_bytes()?;
+                    realm = Some(String::from_utf8(bytes.to_vec())
+                        .map_err(|e| AsnError::InvalidEncoding(format!("invalid UTF-8 in realm: {}", e)))?);
+                }
+                2 => {
+                    // sname [2] PrincipalName
+                    sname = Some(PrincipalName::from_asn(field.get_sub(0)?)?);
+                }
+                3 => {
+                    // enc-part [3] EncryptedData
+                    enc_part = Some(EncryptedData::from_asn(field.get_sub(0)?)?);
+                }
+                _ => {
+                    // Ignore unknown fields
+                }
+            }
+        }
+
+        let tkt_vno = tkt_vno.ok_or_else(|| AsnError::InvalidEncoding("missing tkt_vno".to_string()))?;
+        let realm = realm.ok_or_else(|| AsnError::InvalidEncoding("missing realm".to_string()))?;
+        let sname = sname.ok_or_else(|| AsnError::InvalidEncoding("missing sname".to_string()))?;
+        let enc_part = enc_part.ok_or_else(|| AsnError::InvalidEncoding("missing enc_part".to_string()))?;
+
+        Ok(Ticket {
+            tkt_vno,
+            realm,
+            sname,
+            enc_part,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{Datelike, Timelike};
 
     #[test]
     fn test_principal_type_from_i32() {
@@ -416,5 +606,56 @@ mod tests {
             vec![0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]
         );
         assert_eq!(get_integer_i64(&asn).unwrap(), 0x0123_4567_89AB_CDEF);
+    }
+
+    #[test]
+    fn test_kerberos_time_from_timestamp() {
+        let kt = KerberosTime::from_timestamp(1234567890).unwrap();
+        assert_eq!(kt.timestamp(), 1234567890);
+    }
+
+    #[test]
+    fn test_kerberos_time_from_asn() {
+        // 20250101120000Z = Jan 1, 2025 12:00:00 UTC
+        let time_bytes = b"20250101120000Z";
+        let asn = AsnElt::new_primitive(TagClass::Universal, tags::GENERALIZED_TIME as u32, time_bytes.to_vec());
+
+        let kt = KerberosTime::from_asn(&asn).unwrap();
+        let dt = kt.0;
+        assert_eq!(dt.year(), 2025);
+        assert_eq!(dt.month(), 1);
+        assert_eq!(dt.day(), 1);
+        assert_eq!(dt.hour(), 12);
+        assert_eq!(dt.minute(), 0);
+        assert_eq!(dt.second(), 0);
+    }
+
+    #[test]
+    fn test_ticket_flags_bitflags() {
+        let flags = TicketFlags::FORWARDABLE | TicketFlags::RENEWABLE;
+        assert!(flags.contains(TicketFlags::FORWARDABLE));
+        assert!(flags.contains(TicketFlags::RENEWABLE));
+        assert!(!flags.contains(TicketFlags::PROXIABLE));
+    }
+
+    #[test]
+    fn test_ticket_flags_from_bits() {
+        let flags = TicketFlags::from_bits_truncate(0x4000_0000);
+        assert_eq!(flags, TicketFlags::FORWARDABLE);
+    }
+
+    #[test]
+    fn test_ticket_new() {
+        let sname = PrincipalName::new(
+            PrincipalType::NtSrvInst,
+            vec!["krbtgt".to_string(), "REALM.COM".to_string()]
+        );
+        let enc_part = EncryptedData::new(18, vec![0xAA, 0xBB]);
+
+        let ticket = Ticket::new("REALM.COM".to_string(), sname.clone(), enc_part.clone());
+        assert_eq!(ticket.tkt_vno, 5);
+        assert_eq!(ticket.realm, "REALM.COM");
+        assert_eq!(ticket.sname, sname);
+        assert_eq!(ticket.enc_part, enc_part);
     }
 }

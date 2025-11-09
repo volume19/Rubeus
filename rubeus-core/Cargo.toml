@@ -29,6 +29,7 @@ x509-parser.workspace = true
 tokio.workspace = true
 ldap3.workspace = true
 chrono.workspace = true
+bitflags.workspace = true
 log.workspace = true
 
 [target.'cfg(windows)'.dependencies]

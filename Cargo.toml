@@ -50,6 +50,9 @@ ldap3 = "0.11"
 # Time
 chrono = "0.4"
 
+# Bit flags
+bitflags = "2.6"
+
 # Logging
 log = "0.4"
 env_logger = "0.11"

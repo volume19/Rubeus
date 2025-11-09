@@ -57,15 +57,46 @@ fn main() -> Result<()> {
             user,
             domain,
         }) => {
+            use rubeus_core::crypto::{EType, password_hash, compute_salt};
+
             println!("\n[*] Action: Calculate Password Hash(es)\n");
             println!("[*] Input password             : {}", password);
-            if let Some(u) = user {
+
+            // RC4-HMAC doesn't need salt
+            match password_hash(EType::Rc4Hmac, &password, "", 4096) {
+                Ok(hash) => println!("[*]       rc4_hmac             : {}", hash),
+                Err(e) => eprintln!("[!] RC4-HMAC error: {}", e),
+            }
+
+            // AES and DES need username and domain for salt
+            if let (Some(u), Some(d)) = (user, domain) {
                 println!("[*] Input username             : {}", u);
-            }
-            if let Some(d) = domain {
                 println!("[*] Input domain               : {}", d);
+
+                let salt = compute_salt(&d, &u);
+                println!("[*] Salt                       : {}", salt);
+
+                match password_hash(EType::Aes128CtsHmacSha1, &password, &salt, 4096) {
+                    Ok(hash) => println!("[*]       aes128_cts_hmac_sha1 : {}", hash),
+                    Err(e) => eprintln!("[!] AES128 error: {}", e),
+                }
+
+                match password_hash(EType::Aes256CtsHmacSha1, &password, &salt, 4096) {
+                    Ok(hash) => println!("[*]       aes256_cts_hmac_sha1 : {}", hash),
+                    Err(e) => eprintln!("[!] AES256 error: {}", e),
+                }
+
+                // DES uses password+salt as input
+                let des_input = format!("{}{}", password, salt);
+                match password_hash(EType::DesCbcMd5, &des_input, &salt, 4096) {
+                    Ok(hash) => println!("[*]       des_cbc_md5          : {}", hash),
+                    Err(e) => eprintln!("[!] DES error: {}", e),
+                }
+            } else {
+                println!("\n[!] /user:X and /domain:Y need to be supplied to calculate AES and DES hash types!");
             }
-            println!("\n[!] Cryptography module not yet implemented");
+
+            println!();
         }
         None => {
             println!("\nUsage: rubeus <COMMAND>");

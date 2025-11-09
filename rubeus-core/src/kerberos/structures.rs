@@ -1,5 +1,5 @@
 //! Kerberos protocol data structures
 //! Implements RFC 4120 message types
 
-// Placeholder for Kerberos structures
-// Will be populated with Ticket, AS-REQ, AS-REP, TGS-REQ, TGS-REP, etc.
+// Re-export primitives for convenience
+pub use super::primitives::{PrincipalType, PrincipalName, EncryptionKey, EncryptedData};

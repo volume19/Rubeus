@@ -1,6 +1,7 @@
 //! Kerberos protocol structures and operations
 //! Based on RFC 4120 and Microsoft extensions
 
-// Submodules to be populated in future iterations
+// Core Kerberos structures and primitives
+pub mod primitives;
 pub mod structures;
 pub mod pac;

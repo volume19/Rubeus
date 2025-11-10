@@ -4,4 +4,5 @@
 // Core Kerberos structures and primitives
 pub mod primitives;
 pub mod structures;
+pub mod messages;
 pub mod pac;

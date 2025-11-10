@@ -275,7 +275,7 @@ impl EncryptedData {
 // Helper functions for ASN.1 INTEGER parsing
 
 /// Get INTEGER value as i32
-fn get_integer_i32(asn: &AsnElt) -> AsnResult<i32> {
+pub(crate) fn get_integer_i32(asn: &AsnElt) -> AsnResult<i32> {
     asn.check_universal_tag(tags::INTEGER as u32)?;
     let bytes = asn.get_primitive_bytes()?;
 
@@ -301,7 +301,7 @@ fn get_integer_i32(asn: &AsnElt) -> AsnResult<i32> {
 }
 
 /// Get INTEGER value as i64
-fn get_integer_i64(asn: &AsnElt) -> AsnResult<i64> {
+pub(crate) fn get_integer_i64(asn: &AsnElt) -> AsnResult<i64> {
     asn.check_universal_tag(tags::INTEGER as u32)?;
     let bytes = asn.get_primitive_bytes()?;
 
